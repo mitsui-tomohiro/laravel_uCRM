@@ -32,4 +32,8 @@ class Customer extends Model
             }
         }
     }
+
+    public function purchases() : \Illuminate\Database\Eloquent\Relations\HasMany {
+        return $this->hasMany(Purchase::class);
+    }
 }
