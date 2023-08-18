@@ -4,9 +4,10 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Order;
+use App\Services\AnalysisService;
+use App\Services\DecileService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
-use Illuminate\Support\Facades\DB;
 
 class AnalysisController extends Controller
 {
@@ -15,18 +16,16 @@ class AnalysisController extends Controller
         $subQuery = Order::betweenDate($request->startDate, $request->endDate);
 
         if($request->type === 'perDay') {
-            $subQuery->where('status', true)
-            ->groupBy('id')
-            ->selectRaw('SUM(subtotal) AS totalPerPurchase, DATE_FORMAT(created_at, "%Y%m%d") AS date')
-            ->groupBy('date');
-
-            $data = DB::table($subQuery)
-            ->groupBy('date')
-            ->selectRaw('date, SUM(totalPerPurchase) AS total')
-            ->get();
-
-            $labels = $data->pluck('date');
-            $totals = $data->pluck('total');
+            list($data, $labels, $totals) = AnalysisService::perDay($subQuery);
+        }
+        if($request->type === 'perMonth') {
+            list($data, $labels, $totals) = AnalysisService::perMonth($subQuery);
+        }
+        if($request->type === 'perYear') {
+            list($data, $labels, $totals) = AnalysisService::perYear($subQuery);
+        }
+        if($request->type === 'decile') {
+            list($data, $labels, $totals) = DecileService::decile($subQuery);
         }
 
         // Ajax通信なのでJsonで返却する必要がある
