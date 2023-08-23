@@ -89,4 +89,101 @@ class AnalysisController extends Controller
 
         dd($data);
     }
+
+    public function rfm() {
+        // RFM分析
+        // 期間指定
+        $startDate = '2023-08-20';
+        $endDate = '2023-08-22';
+
+        // 1. 購買IDごとにまとめる
+        $subQuery = Order::betweenDate($startDate, $endDate)
+        ->groupBy('id')
+        ->selectRaw('id, customer_id, customer_name, SUM(subtotal) AS totalPerPurchase, created_at');
+
+        // datediffで日付の差分、maxで日付の最新日
+        // 2. 会員ごとにまとめて最終購入日、回数、合計金額を取得
+        $subQuery = DB::table($subQuery)
+        ->groupBy('customer_id')
+        ->groupBy('customer_name')
+        ->selectRaw('customer_id, customer_name, 
+        MAX(created_at) AS recentDate, 
+        DATEDIFF(NOW(), MAX(created_at)) AS recency, 
+        COUNT(customer_id) AS frequency, 
+        SUM(totalPerPurchase) AS monetary');
+
+        // 4. 会員ごとのRFMランクを計算
+        $rfmPrms = [14, 28, 60, 90, 7, 5, 3, 2, 300000, 200000, 100000, 30000];
+        $subQuery = DB::table($subQuery)
+        ->selectRaw('customer_id, customer_name, recentDate, recency, frequency, monetary,
+        CASE
+            WHEN recency < ? THEN 5
+            WHEN recency < ? THEN 4
+            WHEN recency < ? THEN 3
+            WHEN recency < ? THEN 2
+            ELSE 1
+        END AS r,
+        CASE
+            WHEN frequency >= ? THEN 5
+            WHEN frequency >= ? THEN 4
+            WHEN frequency >= ? THEN 3
+            WHEN frequency >= ? THEN 2
+            ELSE 1
+        END AS f,
+        CASE
+            WHEN monetary >= ? THEN 5
+            WHEN monetary >= ? THEN 4
+            WHEN monetary >= ? THEN 3
+            WHEN monetary >= ? THEN 2
+            ELSE 1
+        END AS m', $rfmPrms);
+        
+        // 5. ランクごとの数を計算する
+        $total = DB::table($subQuery)->count();
+        $rCount = DB::table($subQuery)
+        ->groupBy('r')
+        ->selectRaw('r, COUNT(r)')
+        ->orderBy('r', 'DESC')
+        ->get()
+        ->pluck('COUNT(r)');
+        
+        $fCount = DB::table($subQuery)
+        ->groupBy('f')
+        ->selectRaw('f, COUNT(f)')
+        ->orderBy('f', 'DESC')
+        ->get()
+        ->pluck('COUNT(f)');
+        
+        $mCount = DB::table($subQuery)
+        ->groupBy('m')
+        ->selectRaw('m, COUNT(m)')
+        ->orderBy('m', 'DESC')
+        ->get()
+        ->pluck('COUNT(m)');
+
+        $eachCount = []; // Vue側に渡す用の空の配列
+        $rank = 5; // 初期値5
+
+        for ($i = 0; $i < 5; $i++) {
+            array_push($eachCount, [
+                'rank' => $rank,
+                'r' => $rCount[$i],
+                'f' => $fCount[$i],
+                'm' => $mCount[$i],
+            ]);
+            $rank--; // rankを1ずつ減らす
+        }
+        
+        // 6. RとFで2次元で表示してみる
+        $data = DB::table($subQuery)
+        ->groupBy('r')
+        ->selectRaw('CONCAT("r_", r) AS rRank,
+        COUNT(CASE WHEN f = 5 THEN 1 END) AS f_5,
+        COUNT(CASE WHEN f = 4 THEN 1 END) AS f_4,
+        COUNT(CASE WHEN f = 3 THEN 1 END) AS f_3,
+        COUNT(CASE WHEN f = 2 THEN 1 END) AS f_2,
+        COUNT(CASE WHEN f = 1 THEN 1 END) AS f_1')
+        ->orderBy('rRank', 'DESC')
+        ->get();
+    }
 }
